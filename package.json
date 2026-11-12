@@ -1,0 +1,23 @@
+{
+  "name": "target-scorer",
+  "version": "0.1.0",
+  "description": "Comptage des points sur photo de cible ISSF, dans le navigateur, sans dépendance.",
+  "main": "target_scorer.js",
+  "files": [
+    "target_scorer.js",
+    "target_scorer_ui.js",
+    "target_scorer_worker.js",
+    "target_scorer.css",
+    "demo.html"
+  ],
+  "scripts": {
+    "test": "node test/scoring.test.js && node test/synthetic.test.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/fbastin/target_scorer.git"
+  },
+  "keywords": ["issf", "target", "scoring", "shooting", "computer-vision"],
+  "author": "fbastin",
+  "license": "MIT"
+}

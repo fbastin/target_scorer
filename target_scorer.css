@@ -1,0 +1,171 @@
+/*!
+ * target_scorer.css — styles de l'interface de comptage (target_scorer_ui.js).
+ * Les couleurs passent par des variables : celles de la page hôte si elle en définit
+ * (--color-surface, --color-border, --color-text, --color-text-light, --color-accent,
+ * --color-link), sinon les valeurs de repli ci-dessous. Licence MIT.
+ */
+.tsc {
+    --tsc-surface: var(--color-surface, #f7f8fa);
+    --tsc-border: var(--color-border, rgba(0, 0, 0, 0.15));
+    --tsc-text: var(--color-text, #1a202c);
+    --tsc-muted: var(--color-text-light, rgba(26, 32, 44, 0.7));
+    --tsc-accent: var(--color-accent, #2563eb);
+    --tsc-link: var(--color-link, #1d4ed8);
+    --tsc-warn-bg: rgba(245, 158, 11, 0.12);
+    --tsc-warn-border: rgba(245, 158, 11, 0.55);
+    --tsc-error: rgba(220, 38, 38, 1);
+    color: var(--tsc-text);
+    font-size: 0.95rem;
+    min-width: 0;
+}
+.tsc *, .tsc *::before, .tsc *::after { box-sizing: border-box; }
+
+.tsc-controls {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem 1rem;
+    align-items: flex-end;
+    padding: 0.9rem;
+    background: var(--tsc-surface);
+    border: 1px solid var(--tsc-border);
+    border-radius: 8px;
+}
+.tsc-field {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    min-width: 0;
+    flex: 1 1 11rem;
+}
+.tsc-field.tsc-check {
+    flex-direction: row;
+    align-items: center;
+    flex: 0 0 auto;
+    gap: 0.4rem;
+}
+.tsc-label { font-weight: 600; }
+.tsc-hint { font-size: 0.8rem; color: var(--tsc-muted); }
+.tsc select,
+.tsc input[type="number"] {
+    width: 100%;
+    max-width: 100%;
+    padding: 0.4rem 0.5rem;
+    border: 1px solid var(--tsc-border);
+    border-radius: 4px;
+    background: transparent;
+    color: inherit;
+    font: inherit;
+}
+.tsc select option { color: initial; }
+.tsc-file {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    opacity: 0;
+    overflow: hidden;
+}
+.tsc-button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0.4rem 0.8rem;
+    border: 1px solid var(--tsc-border);
+    border-radius: 4px;
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    cursor: pointer;
+    position: relative;
+    max-width: 100%;
+}
+.tsc-button:hover:not([disabled]) { border-color: var(--tsc-accent); }
+.tsc-button[disabled] { opacity: 0.45; cursor: default; }
+.tsc-button.tsc-primary { background: var(--tsc-accent); border-color: var(--tsc-accent); color: #fff; font-weight: 600; }
+.tsc-button.tsc-active { border-color: var(--tsc-accent); box-shadow: inset 0 0 0 1px var(--tsc-accent); }
+.tsc-file:focus-visible + .tsc-file-text { outline: 2px solid var(--tsc-accent); outline-offset: 3px; }
+
+.tsc-advanced { margin: 0.6rem 0; }
+.tsc-advanced summary { cursor: pointer; color: var(--tsc-link); }
+.tsc-advanced .tsc-field { max-width: 26rem; margin-top: 0.5rem; }
+
+.tsc-bar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    align-items: center;
+    margin: 0.8rem 0 0.4rem;
+}
+.tsc-tabs { display: inline-flex; border: 1px solid var(--tsc-border); border-radius: 6px; overflow: hidden; }
+.tsc-tab {
+    padding: 0.4rem 0.8rem;
+    border: 0;
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    cursor: pointer;
+}
+.tsc-tab + .tsc-tab { border-left: 1px solid var(--tsc-border); }
+.tsc-tab.tsc-active { background: var(--tsc-accent); color: #fff; }
+.tsc-tab[disabled] { opacity: 0.45; cursor: default; }
+.tsc-inline { display: inline-flex; gap: 0.35rem; align-items: center; }
+.tsc-inline select, .tsc-bar > select { width: auto; }
+
+.tsc-status { min-height: 1.4em; margin: 0.3rem 0; color: var(--tsc-muted); }
+.tsc-status.tsc-error { color: var(--tsc-error); }
+.tsc-busy .tsc-status::before {
+    content: "";
+    display: inline-block;
+    width: 0.8em;
+    height: 0.8em;
+    margin-right: 0.4em;
+    border: 2px solid var(--tsc-accent);
+    border-right-color: transparent;
+    border-radius: 50%;
+    vertical-align: -0.1em;
+    animation: tsc-spin 0.8s linear infinite;
+}
+@keyframes tsc-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .tsc-busy .tsc-status::before { animation: none; } }
+
+/* Le canevas peut être plus large que l'écran (zoom) : c'est la vue qui défile, pas la page. */
+.tsc-viewport {
+    width: 100%;
+    max-width: 900px;
+    max-height: 85vh;
+    overflow: auto;
+    border: 1px solid var(--tsc-border);
+    border-radius: 6px;
+    background: rgba(128, 128, 128, 0.12);
+    -webkit-overflow-scrolling: touch;
+}
+.tsc-canvas { display: block; touch-action: none; cursor: crosshair; }
+.tsc-canvas:focus-visible { outline: 2px solid var(--tsc-accent); outline-offset: -2px; }
+.tsc-help { font-size: 0.85rem; color: var(--tsc-muted); margin: 0.4rem 0; }
+
+.tsc-messages { list-style: none; padding: 0; margin: 0.5rem 0; display: grid; gap: 0.35rem; }
+.tsc-msg {
+    padding: 0.45rem 0.7rem;
+    border-left: 3px solid var(--tsc-border);
+    border-radius: 3px;
+    font-size: 0.88rem;
+    overflow-wrap: anywhere;
+}
+.tsc-msg.tsc-warn { background: var(--tsc-warn-bg); border-left-color: var(--tsc-warn-border); }
+.tsc-msg.tsc-info { color: var(--tsc-muted); }
+
+.tsc-summary dl {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(min(11rem, 100%), 1fr));
+    gap: 0.5rem 1rem;
+    margin: 0.8rem 0;
+}
+.tsc-summary dt { font-size: 0.8rem; color: var(--tsc-muted); }
+.tsc-summary dd { margin: 0; font-weight: 700; font-size: 1.05rem; overflow-wrap: anywhere; }
+
+.tsc-table-wrap { width: 100%; overflow-x: auto; }
+.tsc-table { border-collapse: collapse; width: 100%; font-size: 0.9rem; }
+.tsc-table th, .tsc-table td { padding: 0.3rem 0.5rem; border-bottom: 1px solid var(--tsc-border); text-align: left; white-space: nowrap; }
+.tsc-table tbody tr { cursor: pointer; }
+.tsc-table tbody tr:hover { background: rgba(128, 128, 128, 0.08); }
+.tsc-table tr.tsc-selected { background: rgba(37, 99, 235, 0.14); }
+.tsc-export { display: flex; flex-wrap: wrap; gap: 0.5rem; margin: 0.8rem 0; }

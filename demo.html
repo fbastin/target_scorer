@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Comptage des points — démonstration</title>
+<link rel="stylesheet" href="target_scorer.css">
+<style>
+    :root { color-scheme: light dark; }
+    body { font-family: system-ui, sans-serif; margin: 0 auto; padding: 1rem; max-width: 960px; }
+    @media (prefers-color-scheme: dark) { body { background: #111827; color: #e5e7eb; } }
+</style>
+</head>
+<body>
+<h1>Comptage des points sur photo de cible ISSF</h1>
+<p>Démonstration de la bibliothèque <code>target_scorer</code>. La photo reste dans le navigateur.
+   (Ouverte en <code>file://</code>, la page calcule sans Web Worker : servez le dossier par HTTP pour
+   ne pas geler la page pendant l'analyse.)</p>
+<div id="scorer"></div>
+<script src="target_scorer.js"></script>
+<script src="target_scorer_ui.js"></script>
+<script>
+    TargetScorerUI.mount(document.getElementById('scorer'), {
+        lang: (navigator.language || 'fr').slice(0, 2) === 'en' ? 'en' : 'fr',
+        workerUrl: location.protocol === 'file:' ? null : undefined
+    });
+</script>
+</body>
+</html>
