@@ -61,7 +61,7 @@ const STR = {
         unseen: 'Un trou n’apparaît que si ce qu’on voit à travers diffère du papier ET de l’encre : photographiez la cible posée sur un fond de couleur vive (feuille rouge, verte, bleue…).',
         quality: 'Recalage : corrélation {c} ; précision de position estimée ± {u} mm.',
         colN: 'N°', colValue: 'Points', colDecimal: 'Dixièmes', colX: 'Mouche', colPos: 'Position (mm)', colDist: 'Au centre (mm)', colNote: 'Remarque',
-        noteManual: 'ajouté', noteMoved: 'déplacé', noteCheck: 'à vérifier', noteLimit: 'limite', noteRagged: 'arrachement',
+        noteManual: 'ajouté', noteMoved: 'déplacé', noteCheck: 'à vérifier', noteLimit: 'limite', noteRagged: 'arrachement', noteDark: 'trou sombre, à vérifier',
         total: 'Total', shots: 'Tirs', innerTens: 'Mouches', mpi: 'Point moyen', spread: 'Plus grand écart', meanRadius: 'Rayon moyen',
         right: 'à droite', left: 'à gauche', up: 'en haut', down: 'en bas',
         noShots: 'Aucun tir.',
@@ -106,7 +106,7 @@ const STR = {
         unseen: 'A hole only shows if what is seen through it differs from both paper AND ink: photograph the target on a brightly coloured background (red, green, blue sheet…).',
         quality: 'Registration: correlation {c}; estimated position accuracy ± {u} mm.',
         colN: 'No.', colValue: 'Score', colDecimal: 'Decimal', colX: 'Inner 10', colPos: 'Position (mm)', colDist: 'From centre (mm)', colNote: 'Note',
-        noteManual: 'added', noteMoved: 'moved', noteCheck: 'check', noteLimit: 'borderline', noteRagged: 'ragged',
+        noteManual: 'added', noteMoved: 'moved', noteCheck: 'check', noteLimit: 'borderline', noteRagged: 'ragged', noteDark: 'faint hole, check',
         total: 'Total', shots: 'Shots', innerTens: 'Inner tens', mpi: 'Mean point of impact', spread: 'Extreme spread', meanRadius: 'Mean radius',
         right: 'right', left: 'left', up: 'high', down: 'low',
         noShots: 'No shots.',
@@ -448,7 +448,7 @@ ScorerUI.prototype.run = function (how) {
         self.bullIndex = Math.min(keepBull, Math.max(0, res.bulls.length - 1));
         self.shots = res.bulls.map(function (b, i) {
             const auto = b.shots.map(function (s) {
-                return { u: s.u, v: s.v, origin: 'auto', doubtful: s.doubtful, ragged: s.ragged };
+                return { u: s.u, v: s.v, origin: 'auto', doubtful: s.doubtful, ragged: s.ragged, dark: s.dark };
             });
             return auto.concat(options.aligned && kept[i] ? kept[i] : []);
         });
@@ -800,6 +800,7 @@ ScorerUI.prototype.renderTable = function () {
         if (o.shot.origin === 'manual') notes.push(self.t('noteManual'));
         if (o.shot.origin === 'moved') notes.push(self.t('noteMoved'));
         if (o.shot.ragged) notes.push(self.t('noteRagged'));
+        else if (o.shot.dark && o.shot.origin === 'auto') notes.push(self.t('noteDark'));
         else if (o.shot.doubtful && o.shot.origin === 'auto') notes.push(self.t('noteCheck'));
         if (o.borderline) notes.push(self.t('noteLimit'));
         const cells = [String(o.n), String(o.ring)].concat(self.decimal ? [fmt(L, o.decimal, 1)] : [],

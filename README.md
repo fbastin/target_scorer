@@ -55,31 +55,85 @@ Jauges proposées : 4,5 mm (air comprimé), 5,6 mm (.22 LR), 8,00 mm (300 m),
    les trous communs. Au-delà de 6 trous d'aire, la tache est un trou d'arrachement : le
    nombre de tirs y est estimé, les positions sont approximatives et signalées.
 5. **Garde-fous** : sous 0,7 de corrélation entre photo et dessin recalé, les trous ne
-   sont pas comptés. Un tir dont la marge à une limite de zone est sous l'incertitude
-   estimée est marqué « limite » ; une tache coupée par le bord de la photo n'est pas
-   notée.
+   sont pas comptés. Un candidat visuel de rayon inférieur à 2 % du petit côté de l'image
+   est écarté (c'est un trou ou une lettre). Avec plusieurs visuels, chacun ne cherche ses
+   trous que dans la région la plus proche de son centre. Une tache d'arrachement doit être
+   pleine et ramassée (un trait au feutre, un cercle tracé n'en sont pas). Un tir dont la
+   marge à une limite de zone est sous l'incertitude estimée est marqué « limite » ; une
+   tache coupée par le bord de la photo n'est pas notée.
+6. **Trous sombres du noir** : quand le fond vu à travers le trou est aussi sombre que
+   l'encre, un second détecteur cherche, dans le noir seulement, un disque de la taille d'un
+   trou un peu plus sombre que l'encre autour (centre moins couronne) ; ses tirs sont
+   marqués « à vérifier » (`darkHoles: false` pour s'en passer).
 
 ## Ce qui a été mesuré
 
 **Photos synthétiques** (`test/synthetic.test.js`) : caméra à sténopé inclinée jusqu'à
 25° et 15°, à 18 cm d'une cible de 10 m, roulis de 30°, éclairage inégal, bruit, trous
-qui se chevauchent, trous à cheval sur le bord du noir. Sur les sept cas : tous les trous
-retrouvés, aucun en trop, centre de la cible à moins de 0,003 mm, position des trous à
-0,01–0,17 mm en moyenne (0,54 mm au pire, cible de 500 mm), aucun point faux.
+qui se chevauchent, trous à cheval sur le bord du noir, carton à deux visuels. Sur les huit
+cas : tous les trous retrouvés, aucun en trop, centre de la cible à moins de 0,003 mm,
+position des trous à 0,01–0,11 mm en moyenne (0,21 mm au pire), aucun point faux.
 
-**Photos réelles** (pièces jointes d'un forum, 640 × 480 à 1600 × 1200) :
+**Photos annotées trou par trou** — jeu public de Butt et al. (2024, CC BY 4.0) : photos
+de téléphone de cartons de pistolet 10 m tirés, souvent prises très en biais, en 640 × 640
+étirés, chaque trou encadré avec sa valeur. Mise au point sur la partie validation (202
+images), mesure finale sur la partie test (113 images) sans retouche après coup
+(`test/yolo_eval.js`), jauge réglementaire de 4,5 mm :
 
-- carton de pistolet 25 m net, cadré serré : recalage à 0,985 de corrélation, trous
-  isolés retrouvés ; la déchirure centrale d'un groupement est comptée comme trou
-  d'arrachement, au nombre estimé ;
-- carton photographié de biais sous une lampe, pistolet et boîte de cartouches posés
-  dessus : objets ignorés, recalage juste à quelques pixels près (0,89) ; les trous du
-  noir, sombres sur fond sombre, ne sont pas vus ;
-- visuel à moitié hors champ et masqué par une carabine : l'outil refuse de compter
-  (corrélation 0,49) plutôt que de donner un faux score.
+| test (113 images) | |
+|---|---|
+| visuel trouvé / recalage fiable | 99 % / 97 % |
+| trous de la cible retrouvés | 67 % — 82 % dans le blanc, 54 % dans le noir |
+| tirs annoncés qui sont de vrais trous | 80 % |
+| valeur identique à l'annotation | 83 % des paires ; à un point près : 100 % |
+| écart du total par image | 6 points en médiane, 25 au 90ᵉ centile |
 
-Le synthétique est idéalisé ; ces trois photos sont peu nombreuses. **Contrôlez le
-résultat à l'écran** : l'interface est faite pour corriger.
+Les trous annotés hors des anneaux (valeur 0, 15 % des annotations) ne sont pas comptés :
+l'outil ne cherche pas au-delà de la zone 1. Les trous manqués du noir sont ceux où l'on
+voit à travers un fond aussi sombre que l'encre : seuls ressortent les bords déchirés. Les
+écarts de valeur vont surtout dans un sens : l'annotateur note plus haut. Sur 60 photos de
+la validation, les centres des cadres annotés, notés avec une jauge de 5,5 mm, retrouvent
+l'annotation à 90 % et les écarts deviennent symétriques : les annotateurs jugent la touche
+sur le trou déchiré, plus large que la jauge. Ce n'est pas un biais de position : le centre
+trouvé et celui du cadre annoté ne s'écartent radialement que de −0,01 mm en moyenne.
+
+**Images réelles** — corpus de dix cas (`test/corpus.test.js`, images hors dépôt), tous
+conformes au 2026-11-12 :
+
+- quatre cibles vierges de carabine et de pistolet 10 m (Wikimedia Commons, jusqu'à
+  171 × 166 px) : zéro tir, recalage fiable ;
+- deux cartons Krüger de 25 m scannés côte à côte (Commons) : les deux visuels trouvés ;
+  sur celui de droite, les 10 trous retrouvés avec les valeurs lues à l'œil (total 87),
+  plus un faux tir sur le symbole « № » imprimé ;
+- une cible de pistolet 10 m homologuée prise de face (jeu de données publié sur Hugging
+  Face) : les six trous trouvés ; cinq valeurs identiques à la lecture à l'œil, la sixième
+  exactement sur la ligne et marquée « limite » ;
+- une photo serrée dont le visuel sort du cadre : aucun visuel annoncé (les trous ne sont
+  plus pris pour des visuels) ;
+- trois photos d'un forum : carton de 25 m cadré serré (recalage à 0,985) ; carton pris de
+  biais avec un pistolet et une boîte posés dessus (objets ignorés) ; visuel à moitié hors
+  champ et masqué par une carabine (l'outil refuse de compter, corrélation 0,33).
+
+Sur une vingtaine d'autres photos de téléphone du même jeu (cibles de pistolet 10 m,
+640 × 640 px), regardées une à une : recalage fiable partout où le visuel est entier ; trous
+du blanc et trous clairs du noir trouvés ; trous du noir sur fond sombre manqués, comme
+attendu. Aucune de ces vérifications n'est une vérité terrain indépendante : c'est la
+lecture d'un œil humain, sur des images peu nombreuses. **Contrôlez le résultat à
+l'écran** : l'interface est faite pour corriger.
+
+### Sources de validation repérées
+
+- Butt et al., *Application of YOLOv8 and Detectron2 for Bullet Hole Detection and Score
+  Calculation from Shooting Cards*, AI 5 (1), 2024 — 1 243 photos de cartons de pistolet
+  10 m tirés à Haarlem, chaque trou annoté avec sa valeur ; licence CC BY 4.0. Hébergé sur
+  Roboflow Universe (`project-bat-bullet-hole-detection/bullet-hole-object-detection`,
+  version 30 utilisée : parties validation et test sans augmentation) ; l'export demande
+  une clé d'API. Une partie des images (29 sur 315) porte des trous recollés par programme.
+- `mohamedAli4722/SHOOTING_TARGET_DATASET` (Hugging Face) : réexport de quatre jeux
+  Roboflow, dont le précédent ; photos utilisables, mais aucune étiquette n'y porte le nom
+  d'une image — les annotations ne peuvent pas être rattachées.
+- Wikimedia Commons, catégories *Air pistol targets*, *Air rifle targets*, *Bullseye
+  targets* : surtout des cibles vierges, utiles comme témoins négatifs.
 
 ## Conseils de prise de vue
 
@@ -129,7 +183,14 @@ TargetScorer.summarize(shots, 'issf_10m_pistol');       // total, mouches, point
 ```
 npm test          # node test/scoring.test.js && node test/synthetic.test.js
 node test/synthetic.test.js --dump dossier   # écrit les photos synthétiques (PPM)
+node test/corpus.test.js corpus.json          # images réelles décrites par un manifeste
+node test/yolo_eval.js dossier issf_10m_pistol 4.5 test   # jeu annoté au format YOLO
 ```
+
+Le corpus réel n'est pas dans le dépôt (licences, photos de tiers). Son manifeste dit pour
+chaque image d'où elle vient, sous quelle licence, et ce qu'on en attend (nombre de
+visuels, recalage fiable, nombre de tirs ou valeurs des tirs) ; le format est décrit en
+tête de `test/corpus.test.js`. Le décodage passe par ImageMagick.
 
 ## Licence
 

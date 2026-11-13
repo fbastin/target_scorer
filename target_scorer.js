@@ -715,6 +715,12 @@ function detectBulls(level) {
         });
         if (!dup) merged.push(e);
     });
+    // Un visuel n'est pas minuscule : sous 2 % du petit côté de l'image (rayon), c'est un
+    // trou, une pastille ou une lettre. Sur une photo de téléphone dont le vrai visuel
+    // sortait du cadre, quatre trous de 1,5 % passaient pour quatre visuels, et le dessin
+    // recalé sur un trou atteignait 0,97 de corrélation.
+    const minR = 0.02 * Math.min(w, h);
+    for (let i = merged.length - 1; i >= 0; i--) if (Math.sqrt(merged[i].a * merged[i].b) < minR) merged.splice(i, 1);
     if (!merged.length) return [];
     // Les visuels d'un même carton ont la même taille : on écarte ce qui est nettement
     // plus petit que le plus grand (une pastille, un chiffre plein).
@@ -1350,7 +1356,10 @@ function alignBull(pyr, ellipse0, face, opts) {
         lastLevel = L; lastS = S; lastP = p;
         if (opts.trace) opts.trace({ level: k, H: H.slice(), phot: phot.slice(), score: alignmentScore(L, S, p), samples: S.n });
     }
-    lastScore = alignmentScore(lastLevel, lastS, lastP);
+    // Tous les niveaux rejetés par le garde-fou : pas de recalage digne de ce nom. On le
+    // dit (corrélation nulle, donc pas de comptage) au lieu de planter.
+    lastScore = lastLevel ? alignmentScore(lastLevel, lastS, lastP) : { corr: 0, coverage: 0 };
+    if (!phot) phot = [0.6, 0, 0, 0.15, 0, 0];
     return { H: H, phot: phot, Rn: Rn, profile: prof, quality: lastScore };
 }
 
@@ -1382,7 +1391,11 @@ function rotateFrame(bull, a) {
 // 7. Redressement et recherche des trous
 // ===========================================================================
 
-function rectify(pyr, bull, face, gauge, opts) {
+// others : centres (pixels de travail) des AUTRES visuels de la photo. Un pixel plus
+// proche d'un autre visuel que du sien lui appartient : il est écarté (other = 1). Sans
+// cela, le domaine d'une cible de 25 m (rayon 258 mm) recouvrait le carton voisin, dont
+// le noir et les trous devenaient de faux tirs.
+function rectify(pyr, bull, face, gauge, opts, others) {
     const Rn = bull.Rn;
     const rDom = face.rings[0] / 2 + 1.5 * gauge;
     const native = hLocalScale(bull.H, 0, 0) / Rn;       // pixels photo par mm
@@ -1395,8 +1408,11 @@ function rectify(pyr, bull, face, gauge, opts) {
     const L = pyr[lev], s = 1 / (1 << lev);
     const Hl = hScaleImage(bull.H, s);
     const gray = new Float32Array(size * size), chroma = new Float32Array(size * size);
-    const valid = new Uint8Array(size * size);
+    const valid = new Uint8Array(size * size), other = new Uint8Array(size * size);
     const half = size / 2;
+    const own = hApply(bull.H, 0, 0);
+    const oth = (others || []).map(function (c) { return [c[0] * s, c[1] * s]; });
+    const ownL = [own[0] * s, own[1] * s];
     for (let j = 0; j < size; j++) {
         for (let i = 0; i < size; i++) {
             const u = (i + 0.5 - half) / ppmm, v = (j + 0.5 - half) / ppmm;
@@ -1404,6 +1420,14 @@ function rectify(pyr, bull, face, gauge, opts) {
             // redressé peuvent déborder du carton (fond, table, autre visuel).
             if (u * u + v * v > rDom * rDom) continue;
             const x = hApply(Hl, u / Rn, v / Rn);
+            if (oth.length) {
+                const d0 = (x[0] - ownL[0]) * (x[0] - ownL[0]) + (x[1] - ownL[1]) * (x[1] - ownL[1]);
+                let mine = true;
+                for (let k = 0; k < oth.length && mine; k++) {
+                    if ((x[0] - oth[k][0]) * (x[0] - oth[k][0]) + (x[1] - oth[k][1]) * (x[1] - oth[k][1]) < d0) mine = false;
+                }
+                if (!mine) { other[j * size + i] = 1; continue; }
+            }
             if (x[0] < 2 || x[1] < 2 || x[0] > L.w - 2 || x[1] > L.h - 2) continue;
             const g = sample(L.img.d, L.w, L.h, x[0], x[1]);
             const c = sample(L.chroma.d, L.w, L.h, x[0], x[1]);
@@ -1411,7 +1435,7 @@ function rectify(pyr, bull, face, gauge, opts) {
             gray[j * size + i] = g; chroma[j * size + i] = c; valid[j * size + i] = 1;
         }
     }
-    return { size: size, ppmm: ppmm, native: native, gray: gray, chroma: chroma, valid: valid, rDom: rDom };
+    return { size: size, ppmm: ppmm, native: native, gray: gray, chroma: chroma, valid: valid, other: other, rDom: rDom };
 }
 
 // Distance euclidienne exacte au carré (Felzenszwalb & Huttenlocher) : pour chaque
@@ -1588,7 +1612,7 @@ function anomalyMap(rect, bull, face) {
         }
     }
     for (let i = 0; i < n * n; i++) { const a = Math.abs(R[i]); A[i] = a > C[i] ? a : C[i]; }
-    return { A: A };
+    return { A: A, R: R };
 }
 
 // Placement de k disques de rayon rr dans une tache (pixels du masque) : on maximise
@@ -1817,6 +1841,30 @@ function buildHoleMask(rect, bull, face, A, tauZone) {
     return mask;
 }
 
+// Aire de l'enveloppe convexe d'un ensemble de pixels (x0, y0, x1, y1, …), coins des
+// pixels compris (chaîne monotone d'Andrew).
+function hullArea(px) {
+    const pts = [];
+    for (let i = 0; i < px.length; i += 2) {
+        pts.push([px[i], px[i + 1]], [px[i] + 1, px[i + 1]], [px[i], px[i + 1] + 1], [px[i] + 1, px[i + 1] + 1]);
+    }
+    pts.sort(function (a, b) { return a[0] - b[0] || a[1] - b[1]; });
+    const cross = function (o, a, b) { return (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0]); };
+    const lower = [], upper = [];
+    for (let i = 0; i < pts.length; i++) {
+        while (lower.length >= 2 && cross(lower[lower.length - 2], lower[lower.length - 1], pts[i]) <= 0) lower.pop();
+        lower.push(pts[i]);
+    }
+    for (let i = pts.length - 1; i >= 0; i--) {
+        while (upper.length >= 2 && cross(upper[upper.length - 2], upper[upper.length - 1], pts[i]) <= 0) upper.pop();
+        upper.push(pts[i]);
+    }
+    const h = lower.slice(0, -1).concat(upper.slice(0, -1));
+    let a = 0;
+    for (let i = 0; i < h.length; i++) { const j = (i + 1) % h.length; a += h[i][0] * h[j][1] - h[j][0] * h[i][1]; }
+    return Math.abs(a) / 2;
+}
+
 // k-moyennes (k-means++ déterministe) sur des pixels ; centres en coordonnées
 // continues (centre de pixel).
 function kmeansCenters(pixels, k, rand) {
@@ -1852,6 +1900,100 @@ function kmeansCenters(pixels, k, rand) {
     return centers.map(function (q) { return [q[0] + 0.5, q[1] + 0.5]; });
 }
 
+// Trous du noir sur fond sombre : à travers le trou, on voit la table, à peine plus
+// noire que l'encre ; seules les fibres blanches arrachées dépassent le seuil, et
+// l'ouverture les efface (constaté sur la moitié des photos du jeu de Butt et al. où le
+// noir porte des trous). On cherche ici, dans le noir seulement, un disque de la taille
+// d'un trou un peu plus SOMBRE que l'encre : moyenne de l'écart sur le disque moins sa
+// moyenne sur une couronne autour (une ombre large s'annule), seuil réglé sur le bruit
+// de l'image. Le sens « plus sombre » écarte les chiffres et les anneaux blancs.
+function darkHolesInBlack(rect, face, R, rr, gPx, existing) {
+    const n = rect.size, ppmm = rect.ppmm, half = n / 2;
+    const rb = face.black / 2 * ppmm - 1.5 - 0.6 * gPx;          // noir, loin de son bord (pixels)
+    const bars = face.bars, barMargin = (2 + 0.6 * gPx) / ppmm;
+    if (rb <= 2 * rr) return [];
+    const d = new Float32Array(n * n), w = new Float32Array(n * n);
+    for (let j = 0; j < n; j++) {
+        for (let i = 0; i < n; i++) {
+            const p = j * n + i;
+            if (!rect.inner[p]) continue;
+            if (Math.hypot(i + 0.5 - half, j + 0.5 - half) > rb) continue;
+            if (bars) {
+                // Traits de visée blancs du tir rapide : leur bord flou paraît « plus sombre
+                // que prévu » ; on n'y cherche pas (35 faux trous sur la cible synthétique).
+                const u = Math.abs(i + 0.5 - half) / ppmm, v = Math.abs(j + 0.5 - half) / ppmm;
+                if (v <= bars.width / 2 + barMargin && u >= bars.from - barMargin && u <= bars.to + barMargin) continue;
+            }
+            d[p] = R[p] < 0 ? -R[p] : 0;
+            w[p] = 1;
+        }
+    }
+    // Images intégrales (somme et compte).
+    const I = new Float64Array((n + 1) * (n + 1)), C = new Float64Array((n + 1) * (n + 1));
+    for (let j = 0; j < n; j++) {
+        let sr = 0, cr = 0;
+        for (let i = 0; i < n; i++) {
+            sr += d[j * n + i]; cr += w[j * n + i];
+            I[(j + 1) * (n + 1) + i + 1] = I[j * (n + 1) + i + 1] + sr;
+            C[(j + 1) * (n + 1) + i + 1] = C[j * (n + 1) + i + 1] + cr;
+        }
+    }
+    const box = function (A, x0, y0, x1, y1) {
+        x0 = Math.max(0, x0); y0 = Math.max(0, y0); x1 = Math.min(n, x1); y1 = Math.min(n, y1);
+        if (x1 <= x0 || y1 <= y0) return 0;
+        return A[y1 * (n + 1) + x1] - A[y0 * (n + 1) + x1] - A[y1 * (n + 1) + x0] + A[y0 * (n + 1) + x0];
+    };
+    const a = Math.max(1, Math.round(0.7 * rr)), b = Math.max(a + 2, Math.round(2.2 * rr));
+    const score = new Float32Array(n * n);
+    const vals = [];
+    for (let j = b; j < n - b; j++) {
+        for (let i = b; i < n - b; i++) {
+            const p = j * n + i;
+            if (!w[p]) continue;
+            const cc = box(C, i - a, j - a, i + a + 1, j + a + 1);
+            const ct = box(C, i - b, j - b, i + b + 1, j + b + 1);
+            if (cc < 0.8 * (2 * a + 1) * (2 * a + 1) || ct - cc < 0.5 * ((2 * b + 1) * (2 * b + 1) - (2 * a + 1) * (2 * a + 1))) continue;
+            const sc = box(I, i - a, j - a, i + a + 1, j + a + 1), st = box(I, i - b, j - b, i + b + 1, j + b + 1);
+            score[p] = sc / cc - (st - sc) / (ct - cc);
+            if ((i + j) % 3 === 0) vals.push(score[p]);
+        }
+    }
+    if (vals.length < 50) return [];
+    const med = median(vals), mad = 1.4826 * median(vals.map(function (v) { return Math.abs(v - med); }));
+    const tau = Math.max(0.06, med + 7 * mad);
+    const cand = [];
+    for (let j = b; j < n - b; j++) {
+        for (let i = b; i < n - b; i++) {
+            const p = j * n + i, v = score[p];
+            if (v <= tau) continue;
+            let isMax = true;
+            for (let dy = -1; dy <= 1 && isMax; dy++) for (let dx = -1; dx <= 1; dx++) if ((dx || dy) && score[p + dy * n + dx] > v) { isMax = false; break; }
+            if (isMax) cand.push([v, i, j]);
+        }
+    }
+    cand.sort(function (p, q) { return q[0] - p[0]; });
+    const taken = existing.map(function (s) { return [s.u * ppmm + half, s.v * ppmm + half]; });
+    const out = [];
+    cand.forEach(function (c) {
+        const x = c[1] + 0.5, y = c[2] + 0.5;
+        if (taken.some(function (t) { return Math.hypot(t[0] - x, t[1] - y) < 0.8 * gPx; })) return;
+        // Centre affiné : barycentre de l'écart sur le disque.
+        let sx = 0, sy = 0, sw = 0;
+        for (let dy = -Math.ceil(rr); dy <= Math.ceil(rr); dy++) {
+            for (let dx = -Math.ceil(rr); dx <= Math.ceil(rr); dx++) {
+                if (dx * dx + dy * dy > rr * rr) continue;
+                const q = (c[2] + dy) * n + (c[1] + dx);
+                if (q < 0 || q >= n * n) continue;
+                sx += d[q] * (x + dx); sy += d[q] * (y + dy); sw += d[q];
+            }
+        }
+        const pc = sw > 0 ? [sx / sw, sy / sw] : [x, y];
+        taken.push(pc);
+        out.push(pc);
+    });
+    return out;
+}
+
 function detectHoles(rect, bull, face, gauge, opts) {
     const n = rect.size, ppmm = rect.ppmm;
     const gPx = gauge * ppmm;
@@ -1865,7 +2007,7 @@ function detectHoles(rect, bull, face, gauge, opts) {
         for (let j = 0; j < n; j++) {
             for (let i = 0; i < n; i++) {
                 const p = j * n + i;
-                if (!rect.valid[p] && Math.hypot(i + 0.5 - half0, j + 0.5 - half0) <= rd + 1) frame[p] = 1;
+                if (!rect.valid[p] && !rect.other[p] && Math.hypot(i + 0.5 - half0, j + 0.5 - half0) <= rd + 1) frame[p] = 1;
             }
         }
         const d = edt(frame, n, n), r2 = (0.5 * gPx) * (0.5 * gPx);
@@ -1926,26 +2068,28 @@ function detectHoles(rect, bull, face, gauge, opts) {
                 const xx = x + dx, yy = y + dy;
                 if (xx < 0 || yy < 0 || xx >= n || yy >= n) continue;
                 const q = yy * n + xx;
-                if (rect.valid[q] && !rect.inner[q]) return true;
+                if (rect.valid[q] && !rect.inner[q]) return 1;
+                if (rect.other[q]) return 2;
             }
         }
-        return false;
+        return 0;
     };
-    let cutByFrame = 0;
+    let cutByFrame = 0, notHoleShape = 0;
     cc.comps.forEach(function (c) {
         if (c.area < 0.25 * Anom) return;
         const px = [];
-        let touches = false;
+        let touches = 0;
         for (let y = c.y0; y <= c.y1; y++) {
             for (let x = c.x0; x <= c.x1; x++) {
                 if (cc.label[y * n + x] !== c.id) continue;
                 px.push(x, y);
-                if (!touches && nearFrame(x, y)) touches = true;
+                if (!touches) touches = nearFrame(x, y);
             }
         }
         // Une tache coupée par le cadre de la photo ne se note pas (et le vignetage
-        // des coins en fabrique).
-        if (touches) { cutByFrame++; return; }
+        // des coins en fabrique) ; une tache à la frontière d'un autre visuel est à lui.
+        if (touches === 1) { cutByFrame++; return; }
+        if (touches === 2) return;
         // Allongement : rapport des moments principaux.
         let mx = 0, my = 0;
         for (let i = 0; i < px.length; i += 2) { mx += px[i]; my += px[i + 1]; }
@@ -1984,6 +2128,11 @@ function detectHoles(rect, bull, face, gauge, opts) {
         b.fits = [];
         if (b.area > 60 * Aref) { b.rejected = 'trop grande'; return; }
         if (b.area > RAGGED * Aref) {
+            // Un trou d'arrachement est une plage pleine et ramassée. Un trait au feutre,
+            // un cercle tracé autour d'un tir, une flèche, la jointure de deux scans n'en
+            // ont pas la forme ; sans ce critère, chacun comptait pour 9 à 12 « tirs ».
+            const sol = b.area / Math.max(1, hullArea(b.pixels));
+            if (sol < 0.6 || b.ratio < 0.2) { b.rejected = 'forme'; notHoleShape++; return; }
             b.ragged = true;
             b.k = Math.max(RAGGED, Math.round(b.area / (0.75 * Aref)));
             return;
@@ -2059,7 +2208,18 @@ function detectHoles(rect, bull, face, gauge, opts) {
             });
         });
     });
+    // Trous sombres dans le noir (darkHoles: false pour s'en passer). Sur la validation
+    // du jeu de Butt et al. (202 photos), rappel dans le noir de 38,7 à 56,7 %, précision
+    // de 82,6 à 80,4 % : deux de ces tirs sur trois sont de vrais trous, d'où la mention
+    // « à vérifier ».
+    if (opts.darkHoles !== false) {
+        darkHolesInBlack(rect, face, am.R, rr, gPx, shots).forEach(function (c) {
+            const u = (c[0] - half) / ppmm, v = (c[1] - half) / ppmm;
+            shots.push({ u: u, v: v, x: u, y: -v, blob: -1, blobShots: 1, ragged: false, dark: true, doubtful: true });
+        });
+    }
     return { shots: shots, blobs: live, anomaly: am, mask: opened, Aref: Aref, holePx: 2 * rr, cutByFrame: cutByFrame,
+             notHoleShape: notHoleShape,
              threshold: { black: tauZone[0], white: tauZone[1] } };
 }
 
@@ -2255,26 +2415,31 @@ function analyze(imageData, options) {
             return { cx: e.cx * sDet, cy: e.cy * sDet, a: e.a * sDet, b: e.b * sDet, theta: e.theta, roughness: e.roughness };
         });
     }
-    const bulls = ellipses.map(function (e, bi) {
-        let bull;
+    // Première passe : recaler chaque visuel. Seconde passe (plus bas) : chercher les
+    // trous de chacun en sachant où sont les autres.
+    const recaled = ellipses.map(function (e, bi) {
         if (aligned) {
             const b0 = aligned[bi];
-            bull = { ellipse: b0.ellipse, H: b0.H.slice(), phot: b0.phot.slice(), Rn: b0.Rn, profile: b0.profile, quality: b0.quality };
-        } else {
-            const al = alignBull(pyr, e, face, opts);
-            bull = { ellipse: e, H: al.H, phot: al.phot, Rn: al.Rn, profile: al.profile, quality: al.quality };
-            uprightFrame(bull);
+            return { ellipse: b0.ellipse, H: b0.H.slice(), phot: b0.phot.slice(), Rn: b0.Rn, profile: b0.profile, quality: b0.quality };
         }
+        const al = alignBull(pyr, e, face, opts);
+        const bull = { ellipse: e, H: al.H, phot: al.phot, Rn: al.Rn, profile: al.profile, quality: al.quality };
+        uprightFrame(bull);
+        return bull;
+    });
+    const centres = recaled.map(function (b) { return hApply(b.H, 0, 0); });
+    const bulls = recaled.map(function (bull, bi) {
+        const others = centres.filter(function (_, k) { return k !== bi; });
         // Garde-fou : sous MIN_CORR entre la photo et le dessin recalé, le recalage
         // n'est pas fiable (mauvaise cible choisie, visuel mal trouvé, photo floue) ;
         // on ne compte pas les trous, on le dit.
         const reliable = bull.quality.corr >= MIN_CORR;
-        let rect = rectify(pyr, bull, face, gauge, opts);
+        let rect = rectify(pyr, bull, face, gauge, opts, others);
         if (face.bars && !aligned) {
             const phi = barsAngle(rect, face);
             if (Math.abs(phi) > 1e-4) {
                 rotateFrame(bull, phi);
-                rect = rectify(pyr, bull, face, gauge, opts);
+                rect = rectify(pyr, bull, face, gauge, opts, others);
             }
         }
         const holes = reliable ? detectHoles(rect, bull, face, gauge, opts) : { shots: [], blobs: [], skipped: true };
@@ -2307,6 +2472,7 @@ function analyze(imageData, options) {
                          areaHoles: b.area / holes.Aref, shots: b.k, ragged: !!b.ragged };
             }),
             cutByFrame: holes.cutByFrame || 0,
+            notHoleShape: holes.notHoleShape || 0,
             threshold: holes.threshold || null,
             holeDiameterSeen: holes.holePx ? holes.holePx / rect.ppmm : null,
             positionUncertainty: sigmaPos,

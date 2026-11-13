@@ -99,6 +99,16 @@ const CASES = [
         holes: [[3, 5], [-20, 14], [40, -30], [-60, -70], [95, 10], [120, 120], [-150, 40], [0, -200]]
     },
     {
+        // Carton à deux visuels : chacun ne cherche ses trous que dans sa moitié. Avant,
+        // le domaine de l'un recouvrait le noir de l'autre.
+        name: 'pistolet 10 m, carton à deux visuels, de biais',
+        face: 'issf_10m_pistol', width: 1600, height: 1000,
+        camera: { pxPerMm: 4.0, distance: 900, cx: 800, cy: 500, pitch: deg(12), yaw: deg(-8) },
+        cardW: 380, cardH: 200, centers: [[-90, 0], [90, 0]],
+        backing: [200, 60, 60],
+        holes: [[-92, 3], [-80, -20], [-120, 25], [-60, 40], [95, -2], [104, 12], [70, -35], [130, 20], [88, 60]]
+    },
+    {
         name: 'pistolet 25 m tir rapide, traits de visée',
         face: 'issf_25m_rapid', width: 1400, height: 1400,
         camera: { pxPerMm: 2.0, distance: 1500, cx: 700, cy: 700, pitch: deg(6), yaw: deg(-9) },
@@ -117,11 +127,12 @@ CASES.forEach(function (tc, idx) {
     const t0 = Date.now();
     const sc = SY.render(face, {
         width: tc.width, height: tc.height, camera: tc.camera, holes: holes,
-        holeDiameter: tc.holeDiameter, backing: tc.backing, light: tc.light, seed: idx + 1
+        holeDiameter: tc.holeDiameter, backing: tc.backing, light: tc.light, seed: idx + 1,
+        cardW: tc.cardW, cardH: tc.cardH, centers: tc.centers
     });
     const tRender = Date.now() - t0;
     if (dumpDir) SY.writePPM(dumpDir + '/case' + idx + '.ppm', sc.image);
-    const res = TS.analyze(sc.image, { face: tc.face, expectedShots: tc.expected });
+    const res = TS.analyze(sc.image, { face: tc.face, expectedShots: tc.expected, darkHoles: args.indexOf('--no-dark') < 0 });
     const out = { name: tc.name, ms: res.ms, render: tRender };
     if (!res.bulls.length) {
         out.error = 'aucun visuel trouvé';
@@ -129,26 +140,41 @@ CASES.forEach(function (tc, idx) {
         results.push(out);
         return;
     }
-    const b = res.bulls[0];
-    // Centre : pixel où l'outil met le centre, contre la vérité.
-    const cTrue = TS.hApply(sc.G, 0, 0), cFound = TS.hApply(b.H, 0, 0);
+    // Chaque visuel vrai est apparié au visuel trouvé dont le centre en est le plus
+    // proche ; ses trous sont ceux qui sont plus près de lui que des autres.
+    const centers = tc.centers || [[0, 0]];
     const ppmmC = tc.camera.pxPerMm;
-    out.centreErrMM = Math.hypot(cTrue[0] - cFound[0], cTrue[1] - cFound[1]) / ppmmC;
-    out.corr = b.quality.corr;
-    const m = matchShots(b.shots, holes, face.gauge);
-    out.found = b.shots.length; out.expected = holes.length;
-    out.missed = m.missed; out.extra = m.extra;
-    const errs = m.pairs.map(function (p) { return p.err; });
+    out.found = 0; out.expected = holes.length; out.missed = 0; out.extra = 0;
+    out.centreErrMM = 0; out.corr = 1; out.wrongScores = 0;
+    let errs = [];
+    if (res.bulls.length !== centers.length) out.bullCount = res.bulls.length + '/' + centers.length;
+    centers.forEach(function (c, ci) {
+        const cTrue = TS.hApply(sc.G, c[0], c[1]);
+        let b = null, bd = Infinity;
+        res.bulls.forEach(function (bb) {
+            const p = TS.hApply(bb.H, 0, 0), d = Math.hypot(p[0] - cTrue[0], p[1] - cTrue[1]);
+            if (d < bd) { bd = d; b = bb; }
+        });
+        const mine = holes.filter(function (h) {
+            let k0 = 0, dk = Infinity;
+            centers.forEach(function (cc, k) { const d = Math.hypot(h.u - cc[0], h.v - cc[1]); if (d < dk) { dk = d; k0 = k; } });
+            return k0 === ci;
+        }).map(function (h) { return { u: h.u - c[0], v: h.v - c[1] }; });
+        if (!b) { out.missed += mine.length; return; }
+        out.centreErrMM = Math.max(out.centreErrMM, bd / ppmmC);
+        out.corr = Math.min(out.corr, b.quality.corr);
+        const m = matchShots(b.shots, mine, face.gauge);
+        out.found += b.shots.length; out.missed += m.missed; out.extra += m.extra;
+        errs = errs.concat(m.pairs.map(function (p) { return p.err; }));
+        m.pairs.forEach(function (p) {
+            const t = TS.scoreShot(face, Math.hypot(p.gt.u, p.gt.v));
+            if (t.ring !== p.det.ring && !p.det.borderline) out.wrongScores++;
+        });
+    });
     out.maxErrMM = errs.length ? Math.max.apply(null, errs) : null;
     out.meanErrMM = errs.length ? errs.reduce(function (a, c) { return a + c; }, 0) / errs.length : null;
-    // Points : vérité contre outil.
-    let wrong = 0;
-    m.pairs.forEach(function (p) {
-        const t = TS.scoreShot(face, Math.hypot(p.gt.u, p.gt.v));
-        if (t.ring !== p.det.ring && !p.det.borderline) wrong++;
-    });
-    out.wrongScores = wrong;
-    const ok = out.missed === 0 && out.extra === 0 && out.maxErrMM < 0.08 * face.gauge + 0.6 / ppmmC && out.centreErrMM < 0.03 * face.gauge + 0.5 / ppmmC && wrong === 0;
+    const wrong = out.wrongScores;
+    const ok = !out.bullCount && out.missed === 0 && out.extra === 0 && out.maxErrMM < 0.08 * face.gauge + 0.6 / ppmmC && out.centreErrMM < 0.03 * face.gauge + 0.5 / ppmmC && wrong === 0;
     out.ok = ok;
     if (!ok) failures++;
     results.push(out);
@@ -157,7 +183,7 @@ CASES.forEach(function (tc, idx) {
 results.forEach(function (r) {
     console.log((r.ok ? 'OK   ' : 'ÉCHEC') + ' ' + r.name);
     if (r.error) { console.log('      ' + r.error); return; }
-    console.log('      trouvés ' + r.found + '/' + r.expected + ' (manqués ' + r.missed + ', en trop ' + r.extra + ')' +
+    console.log('      ' + (r.bullCount ? 'VISUELS ' + r.bullCount + ' ; ' : '') + 'trouvés ' + r.found + '/' + r.expected + ' (manqués ' + r.missed + ', en trop ' + r.extra + ')' +
         ' ; erreur max ' + (r.maxErrMM == null ? '—' : r.maxErrMM.toFixed(3)) + ' mm, moyenne ' + (r.meanErrMM == null ? '—' : r.meanErrMM.toFixed(3)) +
         ' ; centre ' + r.centreErrMM.toFixed(3) + ' mm ; corrélation ' + r.corr.toFixed(3) +
         ' ; points faux ' + r.wrongScores + ' ; ' + r.ms + ' ms');

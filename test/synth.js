@@ -32,6 +32,10 @@ function makeScene(face, o) {
     const holes = o.holes || [];
     const holeR = (o.holeDiameter || face.gauge) / 2;
     const card = o.cardMM || face.rings[0] * 1.6;
+    const cardW = o.cardW || card, cardH = o.cardH || card;
+    // Plusieurs visuels sur un carton (cartons d'entraînement) : centres en mm. Les trous
+    // sont donnés en coordonnées du carton.
+    const centers = o.centers || [[0, 0]];
     const paper = o.paper || [235, 233, 225];
     const ink = o.ink || [22, 22, 26];
     const backing = o.backing || [70, 140, 60];
@@ -44,7 +48,7 @@ function makeScene(face, o) {
     const bands = [];
     for (let k = 0; k < n - 2; k++) bands.push({ r: (face.rings[k] + face.rings[k + 1]) / 4 });
     return function (u, v) {
-        if (Math.abs(u) > card / 2 || Math.abs(v) > card / 2) {
+        if (Math.abs(u) > cardW / 2 || Math.abs(v) > cardH / 2) {
             const t = 0.5 + 0.25 * Math.sin(u * 0.05) * Math.cos(v * 0.07);
             return [table[0] * (0.8 + 0.4 * t), table[1] * (0.8 + 0.4 * t), table[2] * (0.8 + 0.4 * t)];
         }
@@ -52,6 +56,12 @@ function makeScene(face, o) {
             const d = Math.hypot(u - holes[i].u, v - holes[i].v);
             if (d < holeR) return backing;
         }
+        let best = 0, bd = Infinity;
+        for (let k = 0; k < centers.length; k++) {
+            const dk = Math.hypot(u - centers[k][0], v - centers[k][1]);
+            if (dk < bd) { bd = dk; best = k; }
+        }
+        u -= centers[best][0]; v -= centers[best][1];
         const r = Math.hypot(u, v);
         let col = TS._internal.profileColor(prof, r);
         if (face.bars) {
