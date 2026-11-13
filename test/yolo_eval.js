@@ -2,6 +2,10 @@
 // Évaluation sur un jeu de données annoté au format YOLO (export Roboflow, par exemple
 // Butt et al. 2024) dont les classes de trous portent la VALEUR du tir (« 0 » … « 10 »).
 //   node test/yolo_eval.js dossier_du_jeu face [jauge] [parties] [--json sortie.json] [--limit n]
+//                          [--one-copy] [--no-dark]
+// --one-copy : une seule copie par image source (Roboflow multiplie les images d'entraînement
+//   en copies retournées ou assombries, nommées « source_jpg.rf.<empreinte>.jpg ») ; la
+//   première dans l'ordre alphabétique.
 //   ex. : node test/yolo_eval.js ~/…/v30/data issf_10m_pistol 4.5 valid,test --json res.json
 // Le dossier contient data.yaml et, par partie, images/ et labels/. Décodage par
 // ImageMagick (`convert`).
@@ -25,6 +29,7 @@ const dir = pos[0], face = pos[1] || 'issf_10m_pistol', gauge = pos[2] ? +pos[2]
 const splits = (pos[3] || 'valid,test').split(',');
 const limit = opt('--limit') ? +opt('--limit') : Infinity;
 const jsonOut = opt('--json');
+const oneCopy = args.indexOf('--one-copy') >= 0;
 if (!dir) { console.error('usage : node test/yolo_eval.js dossier face [jauge] [parties]'); process.exit(2); }
 
 // Noms des classes, lus dans data.yaml (liste « names: [...] » sur une ligne, ou en tirets).
@@ -56,7 +61,13 @@ let n = 0;
 splits.forEach(function (split) {
     const imgDir = path.join(dir, split, 'images'), labDir = path.join(dir, split, 'labels');
     if (!fs.existsSync(imgDir)) return;
+    const seen = new Set();
     fs.readdirSync(imgDir).sort().forEach(function (f) {
+        if (oneCopy) {
+            const key = f.replace(/\.rf\.[0-9a-f]+\.\w+$/, '');
+            if (seen.has(key)) return;
+            seen.add(key);
+        }
         if (n++ >= limit) return;
         const img = decode(path.join(imgDir, f));
         const lab = fs.readFileSync(path.join(labDir, f.replace(/\.[^.]+$/, '.txt')), 'utf8').trim().split('\n').filter(Boolean);

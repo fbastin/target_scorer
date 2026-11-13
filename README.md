@@ -77,16 +77,30 @@ position des trous à 0,01–0,11 mm en moyenne (0,21 mm au pire), aucun point f
 **Photos annotées trou par trou** — jeu public de Butt et al. (2024, CC BY 4.0) : photos
 de téléphone de cartons de pistolet 10 m tirés, souvent prises très en biais, en 640 × 640
 étirés, chaque trou encadré avec sa valeur. Mise au point sur la partie validation (202
-images), mesure finale sur la partie test (113 images) sans retouche après coup
-(`test/yolo_eval.js`), jauge réglementaire de 4,5 mm :
+images) seulement ; mesure sur la partie test (113 images), puis sur la partie
+entraînement (928 cartons, une copie de chacun), sans retouche entre les deux ni après
+(`test/yolo_eval.js`, `test/yolo_groups.js`), jauge réglementaire de 4,5 mm :
 
-| test (113 images) | |
-|---|---|
-| visuel trouvé / recalage fiable | 99 % / 97 % |
-| trous de la cible retrouvés | 67 % — 82 % dans le blanc, 54 % dans le noir |
-| tirs annoncés qui sont de vrais trous | 80 % |
-| valeur identique à l'annotation | 83 % des paires ; à un point près : 100 % |
-| écart du total par image | 6 points en médiane, 25 au 90ᵉ centile |
+| | test (113) | entraînement (928) | les deux (1 041) |
+|---|---|---|---|
+| visuel trouvé / recalage fiable | 99 / 97 % | 98 / 97,5 % | 98 / 97,5 % |
+| trous de la cible retrouvés | 67 % | 64 % | **64 %** (62–66) |
+| — dans le blanc / dans le noir | 82 / 54 % | 76 / 46 % | 77 / 47 % |
+| tirs annoncés qui sont de vrais trous | 80 % | 73 % | 73 % (70–77) |
+| valeur identique à l'annotation | 83 % | 82 % | **82 %** (81–84) |
+| valeur à un point près | 100 % | 99,7 % | 99,7 % |
+| écart du total par image (médiane / 90ᵉ centile) | 6 / 25 | 8 / 25 | 8 / 25 |
+
+Entre parenthèses : intervalle à 95 %, par rééchantillonnage des images. Sur les 2 654
+tirs appariés, 8 s'écartent de plus d'un point (7 de deux, 1 de cinq).
+
+Par type d'image (les deux parties) : sur les 583 photos datées, le type qui domine la
+validation, 71 % des trous retrouvés, 82 % de vrais trous, 85 % de valeurs identiques. Les
+345 photos de cartons **tenus à la main**, souvent **froissés**, absentes de la validation
+et du test, font nettement moins bien : 51 % des trous retrouvés (55 % dans le blanc),
+55 % de vrais trous, 75 % de valeurs identiques. L'ombre des plis passe pour des trous ou
+des arrachements (dix de ces photos portent plus du tiers des faux tirs du groupe) ; sur
+un carton tenu en l'air, sans fond, bien des trous ressortent à peine.
 
 Les trous annotés hors des anneaux (valeur 0, 15 % des annotations) ne sont pas comptés :
 l'outil ne cherche pas au-delà de la zone 1. Les trous manqués du noir sont ceux où l'on
@@ -127,8 +141,13 @@ l'écran** : l'interface est faite pour corriger.
   Calculation from Shooting Cards*, AI 5 (1), 2024 — 1 243 photos de cartons de pistolet
   10 m tirés à Haarlem, chaque trou annoté avec sa valeur ; licence CC BY 4.0. Hébergé sur
   Roboflow Universe (`project-bat-bullet-hole-detection/bullet-hole-object-detection`,
-  version 30 utilisée : parties validation et test sans augmentation) ; l'export demande
-  une clé d'API. Une partie des images (29 sur 315) porte des trous recollés par programme.
+  version 30 utilisée : parties validation et test sans augmentation ; partie
+  entraînement en trois copies retournées ou assombries de chaque carton, d'où
+  `--one-copy`) ; l'export demande une clé d'API. Une partie des images (90 sur 1 243)
+  porte des trous recollés par programme. Les autres jeux de trous de balle publiés sur
+  Roboflow Universe, passés en revue en novembre 2026, en sont des copies (*Shooting
+  Discs* y ajoute 122 images, non examinées), ou n'ont pas à la fois une cible ISSF et
+  des trous annotés.
 - `mohamedAli4722/SHOOTING_TARGET_DATASET` (Hugging Face) : réexport de quatre jeux
   Roboflow, dont le précédent ; photos utilisables, mais aucune étiquette n'y porte le nom
   d'une image — les annotations ne peuvent pas être rattachées.
@@ -142,6 +161,7 @@ l'écran** : l'interface est faite pour corriger.
   Sur fond blanc, les trous du blanc disparaissent ; sur fond noir, ceux du noir.
 - La cible entière dans le cadre, à plat, éclairée sans ombre portée ; de face autant que
   possible (le biais est corrigé, mais il réduit la résolution).
+- Lissez un carton froissé avant la photo : l'ombre des plis passe pour des trous.
 
 ## Utilisation
 
@@ -184,7 +204,9 @@ TargetScorer.summarize(shots, 'issf_10m_pistol');       // total, mouches, point
 npm test          # node test/scoring.test.js && node test/synthetic.test.js
 node test/synthetic.test.js --dump dossier   # écrit les photos synthétiques (PPM)
 node test/corpus.test.js corpus.json          # images réelles décrites par un manifeste
-node test/yolo_eval.js dossier issf_10m_pistol 4.5 test   # jeu annoté au format YOLO
+node test/yolo_eval.js dossier issf_10m_pistol 4.5 test --json test.json   # jeu annoté au format YOLO
+node test/yolo_eval.js dossier issf_10m_pistol 4.5 train --one-copy --json train.json
+node test/yolo_groups.js test.json train.json --ci   # ventilation par type, intervalles
 ```
 
 Le corpus réel n'est pas dans le dépôt (licences, photos de tiers). Son manifeste dit pour
