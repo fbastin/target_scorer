@@ -179,6 +179,12 @@ l'écran** : l'interface est faite pour corriger.
 L'interface calcule dans un Web Worker (`target_scorer_worker.js`, à côté de
 `target_scorer_ui.js`) ; option `workerUrl: null` pour calculer dans la page.
 
+« Copier le tableau » donne, en texte séparé par des tabulations, chaque tir (valeur,
+position en mm, remarque : « ajouté », « déplacé », « à vérifier »…), le total, puis ce
+que la main a changé au résultat de l'outil (tirs trouvés, ajoutés, retirés, déplacés) et
+la version de l'outil avec la corrélation du recalage. Avec la photo, ce tableau suffit à
+reproduire un cas où l'outil s'est trompé.
+
 ### API de la bibliothèque
 
 ```js

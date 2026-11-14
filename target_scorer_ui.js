@@ -62,6 +62,9 @@ const STR = {
         quality: 'Recalage : corrélation {c} ; précision de position estimée ± {u} mm.',
         colN: 'N°', colValue: 'Points', colDecimal: 'Dixièmes', colX: 'Mouche', colPos: 'Position (mm)', colDist: 'Au centre (mm)', colNote: 'Remarque',
         noteManual: 'ajouté', noteMoved: 'déplacé', noteCheck: 'à vérifier', noteLimit: 'limite', noteRagged: 'arrachement', noteDark: 'trou sombre, à vérifier',
+        corrections: 'Corrections', corrAdded: '{n} ajouté(s)', corrRemoved: '{n} retiré(s)', corrMoved: '{n} déplacé(s)',
+        foundAuto: 'Trouvés par l’outil', addedHand: 'Ajoutés à la main', removedHand: 'Retirés', movedHand: 'Déplacés',
+        toolLine: 'Outil', correlation: 'corrélation',
         total: 'Total', shots: 'Tirs', innerTens: 'Mouches', mpi: 'Point moyen', spread: 'Plus grand écart', meanRadius: 'Rayon moyen',
         right: 'à droite', left: 'à gauche', up: 'en haut', down: 'en bas',
         noShots: 'Aucun tir.',
@@ -107,6 +110,9 @@ const STR = {
         quality: 'Registration: correlation {c}; estimated position accuracy ± {u} mm.',
         colN: 'No.', colValue: 'Score', colDecimal: 'Decimal', colX: 'Inner 10', colPos: 'Position (mm)', colDist: 'From centre (mm)', colNote: 'Note',
         noteManual: 'added', noteMoved: 'moved', noteCheck: 'check', noteLimit: 'borderline', noteRagged: 'ragged', noteDark: 'faint hole, check',
+        corrections: 'Corrections', corrAdded: '{n} added', corrRemoved: '{n} removed', corrMoved: '{n} moved',
+        foundAuto: 'Found by the tool', addedHand: 'Added by hand', removedHand: 'Removed', movedHand: 'Moved',
+        toolLine: 'Tool', correlation: 'correlation',
         total: 'Total', shots: 'Shots', innerTens: 'Inner tens', mpi: 'Mean point of impact', spread: 'Extreme spread', meanRadius: 'Mean radius',
         right: 'right', left: 'left', up: 'high', down: 'low',
         noShots: 'No shots.',
@@ -143,6 +149,7 @@ function ScorerUI(container, options) {
     this.result = null;         // résultat (allégé) de TargetScorer.analyze
     this.bullIndex = 0;
     this.shots = [];            // par visuel : [{u, v, origin: 'auto'|'manual'|'moved', doubtful, ragged}]
+    this.removed = [];          // par visuel : tirs trouvés par l'outil puis retirés à la main
     this.selected = -1;
     this.view = 'rect';
     this.zoom = 1;
@@ -265,7 +272,7 @@ ScorerUI.prototype.build = function () {
     });
     this.reanalyseBtn.addEventListener('click', function () { self.run({ full: true }); });
     this.deleteBtn.addEventListener('click', function () { self.deleteSelected(); });
-    this.clearBtn.addEventListener('click', function () { self.shots[self.bullIndex] = []; self.selected = -1; self.draw(); self.renderTable(); });
+    this.clearBtn.addEventListener('click', function () { self.countRemoved(self.currentShots()); self.shots[self.bullIndex] = []; self.selected = -1; self.draw(); self.renderTable(); });
     this.copyBtn.addEventListener('click', function () { self.copyTable(); });
     this.downloadBtn.addEventListener('click', function () { self.downloadImage(); });
     this.bindCanvas();
@@ -452,6 +459,7 @@ ScorerUI.prototype.run = function (how) {
             });
             return auto.concat(options.aligned && kept[i] ? kept[i] : []);
         });
+        self.removed = res.bulls.map(function () { return 0; });
         self.selected = -1;
         self.rendered = null;
         self.seedMode = false;
@@ -506,9 +514,16 @@ ScorerUI.prototype.scored = function () {
     return list;
 };
 
+// Un tir de l'outil retiré à la main est compté : c'est un faux tir, que le tableau
+// copié doit signaler (un tir ajouté ou déplacé, lui, se voit à son origine).
+ScorerUI.prototype.countRemoved = function (shots) {
+    const n = shots.filter(function (s) { return s.origin !== 'manual'; }).length;
+    this.removed[this.bullIndex] = (this.removed[this.bullIndex] || 0) + n;
+};
+
 ScorerUI.prototype.deleteSelected = function () {
     if (this.selected < 0) return;
-    this.currentShots().splice(this.selected, 1);
+    this.countRemoved(this.currentShots().splice(this.selected, 1));
     this.selected = -1;
     this.draw();
     this.renderTable();
@@ -796,15 +811,8 @@ ScorerUI.prototype.renderTable = function () {
     this.table.appendChild(el('thead', null, [head]));
     const body = el('tbody');
     list.forEach(function (o) {
-        const notes = [];
-        if (o.shot.origin === 'manual') notes.push(self.t('noteManual'));
-        if (o.shot.origin === 'moved') notes.push(self.t('noteMoved'));
-        if (o.shot.ragged) notes.push(self.t('noteRagged'));
-        else if (o.shot.dark && o.shot.origin === 'auto') notes.push(self.t('noteDark'));
-        else if (o.shot.doubtful && o.shot.origin === 'auto') notes.push(self.t('noteCheck'));
-        if (o.borderline) notes.push(self.t('noteLimit'));
         const cells = [String(o.n), String(o.ring)].concat(self.decimal ? [fmt(L, o.decimal, 1)] : [],
-            [o.innerTen ? '✓' : '', fmt(L, o.x, 1) + ' ; ' + fmt(L, o.y, 1), fmt(L, o.r, 1), notes.join(', ')]);
+            [o.innerTen ? '✓' : '', fmt(L, o.x, 1) + ' ; ' + fmt(L, o.y, 1), fmt(L, o.r, 1), self.notes(o).join(', ')]);
         const tr = el('tr', { class: o.index === self.selected ? 'tsc-selected' : '' }, cells.map(function (c) { return el('td', { text: c }); }));
         tr.addEventListener('click', function () { self.selected = o.index; self.setView('rect'); self.renderTable(); });
         body.appendChild(tr);
@@ -822,6 +830,12 @@ ScorerUI.prototype.renderTable = function () {
     if (sum.mpi) items.push([this.t('mpi'), dir(sum.mpi.x, 'right', 'left') + ', ' + dir(sum.mpi.y, 'up', 'down')]);
     if (sum.extremeSpread != null) items.push([this.t('spread'), fmt(L, sum.extremeSpread, 1) + ' mm']);
     if (sum.meanRadius != null && sum.count > 1) items.push([this.t('meanRadius'), fmt(L, sum.meanRadius, 1) + ' mm']);
+    const c = this.corrections();
+    if (c.added || c.removed || c.moved) {
+        items.push([this.t('corrections'), [c.added ? fill(this.t('corrAdded'), { n: c.added }) : '',
+            c.removed ? fill(this.t('corrRemoved'), { n: c.removed }) : '',
+            c.moved ? fill(this.t('corrMoved'), { n: c.moved }) : ''].filter(Boolean).join(', ')]);
+    }
     this.summary.appendChild(el('dl', null, [].concat.apply([], items.map(function (it) {
         return [el('dt', { text: it[0] }), el('dd', { text: it[1] })];
     }))));
@@ -829,18 +843,50 @@ ScorerUI.prototype.renderTable = function () {
     this.updateButtons();
 };
 
+// Remarques d'un tir, à l'écran comme dans le tableau copié.
+ScorerUI.prototype.notes = function (o) {
+    const notes = [];
+    if (o.shot.origin === 'manual') notes.push(this.t('noteManual'));
+    if (o.shot.origin === 'moved') notes.push(this.t('noteMoved'));
+    if (o.shot.ragged) notes.push(this.t('noteRagged'));
+    else if (o.shot.dark && o.shot.origin === 'auto') notes.push(this.t('noteDark'));
+    else if (o.shot.doubtful && o.shot.origin === 'auto') notes.push(this.t('noteCheck'));
+    if (o.borderline) notes.push(this.t('noteLimit'));
+    return notes;
+};
+
+// Ce que la main a changé au résultat de l'outil, pour le visuel affiché.
+ScorerUI.prototype.corrections = function () {
+    const shots = this.currentShots();
+    const count = function (origin) { return shots.filter(function (s) { return s.origin === origin; }).length; };
+    const removed = this.removed[this.bullIndex] || 0;
+    const added = count('manual'), moved = count('moved');
+    return { added: added, removed: removed, moved: moved, found: shots.length - added + removed };
+};
+
+// Le tableau copié sert aussi de compte rendu : remarques par tir, corrections faites à
+// la main et version de l'outil disent, avec la photo, où l'outil s'est trompé.
 ScorerUI.prototype.tableText = function () {
     const self = this, L = this.lang;
     const list = this.scored();
-    const lines = [[this.t('colN'), this.t('colValue')].concat(this.decimal ? [this.t('colDecimal')] : [], [this.t('colX'), 'x (mm)', 'y (mm)', this.t('colDist')]).join('\t')];
+    const lines = [[this.t('colN'), this.t('colValue')].concat(this.decimal ? [this.t('colDecimal')] : [], [this.t('colX'), 'x (mm)', 'y (mm)', this.t('colDist'), this.t('colNote')]).join('\t')];
     list.forEach(function (o) {
-        lines.push([o.n, o.ring].concat(self.decimal ? [fmt(L, o.decimal, 1)] : [], [o.innerTen ? 'X' : '', fmt(L, o.x, 2), fmt(L, o.y, 2), fmt(L, o.r, 2)]).join('\t'));
+        lines.push([o.n, o.ring].concat(self.decimal ? [fmt(L, o.decimal, 1)] : [], [o.innerTen ? 'X' : '', fmt(L, o.x, 2), fmt(L, o.y, 2), fmt(L, o.r, 2), self.notes(o).join(', ')]).join('\t'));
     });
     const sum = TS.summarize(list.map(function (o) { return { x: o.x, y: o.y }; }), this.faceId, this.gauge());
+    const c = this.corrections();
+    const b = this.bull();
     lines.push('');
     lines.push(this.t('total') + '\t' + sum.total + (this.decimal ? '\t' + fmt(L, sum.totalDecimal, 1) : ''));
     lines.push(this.t('innerTens') + '\t' + sum.innerTens);
     lines.push(TS.FACES[this.faceId].name[L] + '\t' + fmt(L, this.gauge(), 2) + ' mm');
+    lines.push('');
+    lines.push(this.t('foundAuto') + '\t' + c.found);
+    lines.push(this.t('addedHand') + '\t' + c.added);
+    lines.push(this.t('removedHand') + '\t' + c.removed);
+    lines.push(this.t('movedHand') + '\t' + c.moved);
+    lines.push(this.t('toolLine') + '\ttarget_scorer ' + ((this.result && this.result.version) || TS.VERSION) +
+        (b && b.quality ? ', ' + this.t('correlation') + ' ' + fmt(L, b.quality.corr, 3) : ''));
     return lines.join('\n');
 };
 
