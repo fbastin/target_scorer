@@ -173,6 +173,7 @@ l'écran** : l'interface est faite pour corriger.
 <script>
   const ui = TargetScorerUI.mount(document.getElementById('scorer'), { lang: 'fr' });
   // ui.setLang('en'), ui.loadFile(file), ui.loadImageData(imageData)
+  // ui.report() : comptage corrigé, structuré ; ui.photo() : le fichier choisi
 </script>
 ```
 
@@ -184,6 +185,16 @@ position en mm, remarque : « ajouté », « déplacé », « à vérifier »…
 que la main a changé au résultat de l'outil (tirs trouvés, ajoutés, retirés, déplacés) et
 la version de l'outil avec la corrélation du recalage. Avec la photo, ce tableau suffit à
 reproduire un cas où l'outil s'est trompé.
+
+Pour une page qui veut garder ou transmettre ce cas, `ui.report()` donne la même chose en
+objet : pour chaque visuel, les tirs retenus (`x`, `y` en mm, y vers le haut ; valeur ;
+origine `auto`, `manual` ou `moved`, avec `x0`, `y0` la position d'origine d'un tir
+déplacé), les tirs de l'outil retirés à la main (`removed`), la corrélation et
+l'homographie `H` (mm → pixels de l'image analysée, réduite à 2600 px de côté au plus :
+`imageWidth` × `imageHeight`, sur `sourceWidth` × `sourceHeight`). `ui.photo()` rend le
+fichier choisi, tel quel. L'élément hôte reçoit l'évènement `tsc:change` à chaque nouveau
+résultat ou correction. La bibliothèque n'envoie rien elle-même : c'est à la page hôte de
+le faire, si elle le veut (sur tireur.org, avec le consentement du membre).
 
 ### API de la bibliothèque
 

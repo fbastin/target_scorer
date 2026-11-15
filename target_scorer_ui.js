@@ -149,7 +149,9 @@ function ScorerUI(container, options) {
     this.result = null;         // résultat (allégé) de TargetScorer.analyze
     this.bullIndex = 0;
     this.shots = [];            // par visuel : [{u, v, origin: 'auto'|'manual'|'moved', doubtful, ragged}]
-    this.removed = [];          // par visuel : tirs trouvés par l'outil puis retirés à la main
+    this.removed = [];          // par visuel : tirs trouvés par l'outil puis retirés à la main (positions gardées)
+    this.file = null;           // fichier d'origine (loadFile), pour qui voudrait l'envoyer
+    this.sourceSize = null;     // dimensions de la photo, orientation appliquée, avant réduction
     this.selected = -1;
     this.view = 'rect';
     this.zoom = 1;
@@ -272,7 +274,7 @@ ScorerUI.prototype.build = function () {
     });
     this.reanalyseBtn.addEventListener('click', function () { self.run({ full: true }); });
     this.deleteBtn.addEventListener('click', function () { self.deleteSelected(); });
-    this.clearBtn.addEventListener('click', function () { self.countRemoved(self.currentShots()); self.shots[self.bullIndex] = []; self.selected = -1; self.draw(); self.renderTable(); });
+    this.clearBtn.addEventListener('click', function () { self.keepRemoved(self.currentShots()); self.shots[self.bullIndex] = []; self.selected = -1; self.draw(); self.renderTable(); });
     this.copyBtn.addEventListener('click', function () { self.copyTable(); });
     this.downloadBtn.addEventListener('click', function () { self.downloadImage(); });
     this.bindCanvas();
@@ -347,6 +349,8 @@ ScorerUI.prototype.loadFile = function (file) {
         const ctx = c.getContext('2d');
         ctx.drawImage(source, 0, 0, cw, ch);
         self.loadImageData(ctx.getImageData(0, 0, cw, ch));
+        self.file = file;
+        self.sourceSize = { width: w, height: h };
     };
     // createImageBitmap applique l'orientation EXIF (photo de téléphone tenu debout).
     if (typeof createImageBitmap === 'function') {
@@ -368,6 +372,9 @@ ScorerUI.prototype.loadViaImg = function (file, done) {
 
 ScorerUI.prototype.loadImageData = function (imageData) {
     this.image = imageData;
+    this.file = null;
+    this.sourceSize = null;
+    this.removed = [];
     this.photoCanvas = document.createElement('canvas');
     this.photoCanvas.width = imageData.width; this.photoCanvas.height = imageData.height;
     this.photoCanvas.getContext('2d').putImageData(imageData, 0, 0);
@@ -459,7 +466,7 @@ ScorerUI.prototype.run = function (how) {
             });
             return auto.concat(options.aligned && kept[i] ? kept[i] : []);
         });
-        self.removed = res.bulls.map(function () { return 0; });
+        self.removed = res.bulls.map(function () { return []; });
         self.selected = -1;
         self.rendered = null;
         self.seedMode = false;
@@ -514,16 +521,16 @@ ScorerUI.prototype.scored = function () {
     return list;
 };
 
-// Un tir de l'outil retiré à la main est compté : c'est un faux tir, que le tableau
-// copié doit signaler (un tir ajouté ou déplacé, lui, se voit à son origine).
-ScorerUI.prototype.countRemoved = function (shots) {
-    const n = shots.filter(function (s) { return s.origin !== 'manual'; }).length;
-    this.removed[this.bullIndex] = (this.removed[this.bullIndex] || 0) + n;
+// Un tir de l'outil retiré à la main est gardé à part : c'est un faux tir, que le tableau
+// copié et report() doivent signaler (un tir ajouté ou déplacé, lui, se voit à son origine).
+ScorerUI.prototype.keepRemoved = function (shots) {
+    const list = this.removed[this.bullIndex] || (this.removed[this.bullIndex] = []);
+    shots.forEach(function (s) { if (s.origin !== 'manual') list.push(s); });
 };
 
 ScorerUI.prototype.deleteSelected = function () {
     if (this.selected < 0) return;
-    this.countRemoved(this.currentShots().splice(this.selected, 1));
+    this.keepRemoved(this.currentShots().splice(this.selected, 1));
     this.selected = -1;
     this.draw();
     this.renderTable();
@@ -744,7 +751,7 @@ ScorerUI.prototype.bindCanvas = function () {
         if (!drag.moved && Math.hypot(du, dv) * self.ppm < 3) return;
         drag.moved = true;
         s.u = drag.orig[0] + du; s.v = drag.orig[1] + dv;
-        if (s.origin === 'auto') s.origin = 'moved';
+        if (s.origin === 'auto') { s.origin = 'moved'; s.u0 = drag.orig[0]; s.v0 = drag.orig[1]; }
         self.draw();
     });
     const end = function () { if (drag) { drag = null; self.renderTable(); } };
@@ -757,8 +764,8 @@ ScorerUI.prototype.bindCanvas = function () {
         const step = e.shiftKey ? 1 : 0.1;
         const moves = { ArrowLeft: [-step, 0], ArrowRight: [step, 0], ArrowUp: [0, -step], ArrowDown: [0, step] };
         if (moves[e.key]) {
+            if (s.origin === 'auto') { s.origin = 'moved'; s.u0 = s.u; s.v0 = s.v; }
             s.u += moves[e.key][0]; s.v += moves[e.key][1];
-            if (s.origin === 'auto') s.origin = 'moved';
             self.draw(); self.renderTable();
             e.preventDefault();
         } else if (e.key === 'Delete' || e.key === 'Backspace') {
@@ -841,6 +848,8 @@ ScorerUI.prototype.renderTable = function () {
     }))));
     this.renderMessages();
     this.updateButtons();
+    // Pour la page hôte : le résultat (ou sa correction) vient de changer.
+    if (typeof CustomEvent === 'function') this.root.dispatchEvent(new CustomEvent('tsc:change'));
 };
 
 // Remarques d'un tir, à l'écran comme dans le tableau copié.
@@ -859,7 +868,7 @@ ScorerUI.prototype.notes = function (o) {
 ScorerUI.prototype.corrections = function () {
     const shots = this.currentShots();
     const count = function (origin) { return shots.filter(function (s) { return s.origin === origin; }).length; };
-    const removed = this.removed[this.bullIndex] || 0;
+    const removed = (this.removed[this.bullIndex] || []).length;
     const added = count('manual'), moved = count('moved');
     return { added: added, removed: removed, moved: moved, found: shots.length - added + removed };
 };
@@ -934,6 +943,64 @@ ScorerUI.prototype.downloadImage = function () {
         setTimeout(function () { URL.revokeObjectURL(a.href); document.body.removeChild(a); }, 1000);
     }, 'image/png');
 };
+
+// ---------------------------------------------------------------------------
+// Compte rendu structuré, pour qui veut garder ou transmettre un cas
+// ---------------------------------------------------------------------------
+
+// Tous les visuels : tirs retenus après correction (origine « auto », « manual » ou
+// « moved », avec la position d'origine d'un tir déplacé) et tirs de l'outil retirés à la
+// main. Positions en mm, x vers la droite, y vers le haut, origine au centre du visuel.
+// H : homographie mm (v vers le bas) → pixels de l'image analysée (imageWidth ×
+// imageHeight), qui est la photo réduite à 2600 px de côté au plus (sourceWidth ×
+// sourceHeight, orientation appliquée). null tant qu'aucune analyse n'a abouti.
+ScorerUI.prototype.report = function () {
+    if (!this.result) return null;
+    const self = this, face = TS.FACES[this.faceId], g = this.gauge();
+    const r2 = function (x) { return Math.round(x * 100) / 100; };
+    const one = function (s) {
+        const o = { x: r2(s.u), y: r2(-s.v), origin: s.origin || 'auto' };
+        if (s.u0 !== undefined) { o.x0 = r2(s.u0); o.y0 = r2(-s.v0); }
+        if (s.doubtful) o.doubtful = true;
+        if (s.ragged) o.ragged = true;
+        if (s.dark) o.dark = true;
+        const sc = TS.scoreShot(face, Math.hypot(s.u, s.v), g);
+        o.ring = sc.ring; o.decimal = sc.decimal; o.innerTen = !!sc.innerTen;
+        return o;
+    };
+    return {
+        tool: 'target_scorer',
+        version: this.result.version || TS.VERSION,
+        face: this.faceId,
+        gauge: g,
+        expectedShots: +this.expectedInput.value || null,
+        threshold: +this.thresholdRange.value ? +this.thresholdRange.value / 100 : null,
+        imageWidth: this.image ? this.image.width : null,
+        imageHeight: this.image ? this.image.height : null,
+        sourceWidth: this.sourceSize ? this.sourceSize.width : null,
+        sourceHeight: this.sourceSize ? this.sourceSize.height : null,
+        bulls: this.result.bulls.map(function (b, i) {
+            const shots = (self.shots[i] || []).map(one);
+            const removed = (self.removed[i] || []).map(one);
+            const count = function (k) { return shots.filter(function (s) { return s.origin === k; }).length; };
+            return {
+                index: i,
+                reliable: b.reliable !== false,
+                correlation: b.quality ? b.quality.corr : null,
+                positionUncertainty: b.positionUncertainty,
+                H: b.H || null,
+                found: shots.length - count('manual') + removed.length,
+                added: count('manual'),
+                moved: count('moved'),
+                shots: shots,
+                removed: removed
+            };
+        })
+    };
+};
+
+// Le fichier choisi par l'utilisateur, tel quel (null s'il a été donné en ImageData).
+ScorerUI.prototype.photo = function () { return this.file; };
 
 root.TargetScorerUI = {
     mount: function (container, options) { return new ScorerUI(container, options); },
